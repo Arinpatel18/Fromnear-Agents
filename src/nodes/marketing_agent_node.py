@@ -104,6 +104,7 @@ def _format_memory_for_marketing(memory_context: dict) -> str:
 def generate_marketing_output(
     structured_data: Dict[str, Any],
     memory_context: dict,
+    research_output: dict,
     model_name: str = "gemma3:12b",
 ) -> Dict[str, Any]:
     """
@@ -119,8 +120,26 @@ def generate_marketing_output(
     
     context = extract_marketing_insights(structured_data)
     memory_text = _format_memory_for_marketing(memory_context)
+
+    # Build research context for marketing
+    research_text = ""
+    if research_output:
+        mp = research_output.get("market_positioning", {})
+        cl = research_output.get("competitive_landscape", {})
+        trends = research_output.get("industry_trends", [])
+        insights = research_output.get("key_insights", [])
+        research_text = f"""
+=== RESEARCH AGENT FINDINGS ===
+Market Position: {mp.get('size', '?')} / {mp.get('niche', '?')} / {mp.get('price_tier', '?')}
+Competitors: {', '.join(cl.get('likely_competitors', []))}
+Market Saturation: {cl.get('market_saturation', 'N/A')}
+Industry Trends: {'; '.join(trends)}
+Key Insights: {'; '.join(insights)}
+"""
+
     logger.info("✓ Vendor context extracted from website + Instagram data")
     logger.info(f"🧠 Memory context: {memory_context.get('total_past_analyses', 0)} similar vendor(s)")
+    logger.info(f"🔬 Research context: {'injected' if research_text else 'none'}")
     
     # Single comprehensive prompt
     prompt = f"""You are FromNear's Head of Marketing. Your job is to create marketing strategies
@@ -131,6 +150,8 @@ to promote a newly onboarded vendor on the FromNear platform.
 {context}
 
 {memory_text}
+
+{research_text}
 
 YOUR TASK: This vendor has just been onboarded onto FromNear. Create a complete
 marketing plan to launch their presence on the platform and drive customers to
@@ -235,10 +256,12 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
 def marketing_agent(state: AgentState) -> AgentState:
     """
-    Marketing Agent Node — FromNear Vendor Launch Marketing (Memory-Augmented).
+    Marketing Agent Node — FromNear Vendor Launch Marketing (Multi-Agent).
+    Consumes research_output, memory_context, and structured_data.
     """
     structured_data = state.get("structured_data", {})
     memory_context = state.get("memory_context", {})
+    research_output = state.get("research_output", {})
     
     if not structured_data:
         logger.error("✗ No structured data provided to marketing agent")
@@ -246,7 +269,9 @@ def marketing_agent(state: AgentState) -> AgentState:
     
     try:
         model_name = os.getenv("MARKETING_AGENT_MODEL", "gemma3:12b")
-        marketing_output = generate_marketing_output(structured_data, memory_context, model_name)
+        marketing_output = generate_marketing_output(
+            structured_data, memory_context, research_output, model_name
+        )
         
         logger.info("✓ Marketing agent completed successfully")
         return {"marketing_output": marketing_output}

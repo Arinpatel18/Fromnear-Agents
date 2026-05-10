@@ -116,6 +116,7 @@ def _format_memory_context(memory_context: dict) -> str:
 def generate_sales_output(
     structured_data: dict,
     memory_context: dict,
+    research_output: dict,
     model_name: str = "gemma3:12b",
 ) -> dict:
     """
@@ -134,8 +135,29 @@ def generate_sales_output(
 
     vendor_context = extract_sales_insights(structured_data)
     memory_text = _format_memory_context(memory_context)
+
+    # Build research context
+    research_text = ""
+    if research_output:
+        mp = research_output.get("market_positioning", {})
+        cl = research_output.get("competitive_landscape", {})
+        df = research_output.get("digital_footprint", {})
+        vr = research_output.get("vendor_readiness", {})
+        insights = research_output.get("key_insights", [])
+        research_text = f"""
+=== RESEARCH AGENT FINDINGS ===
+Market Position: {mp.get('size', '?')} / {mp.get('niche', '?')} / {mp.get('price_tier', '?')}
+Positioning: {mp.get('summary', 'N/A')}
+Competitors: {', '.join(cl.get('likely_competitors', []))}
+Competitive Advantage: {cl.get('competitive_advantage', 'N/A')}
+Digital Footprint Score: {df.get('score', '?')}/10
+Vendor Readiness: {vr.get('score', '?')}/10
+Key Insights: {'; '.join(insights)}
+"""
+
     logger.info("✓ Vendor context extracted from website + Instagram data")
     logger.info(f"🧠 Memory context: {memory_context.get('total_past_analyses', 0)} similar vendor(s)")
+    logger.info(f"🔬 Research context: {'injected' if research_text else 'none'}")
     logger.info(f"🔍 Using model: {model_name}")
 
     prompt = f"""You are a senior Business Development Manager at FromNear.
@@ -146,6 +168,8 @@ def generate_sales_output(
 {vendor_context}
 
 {memory_text}
+
+{research_text}
 
 YOUR TASK: Analyze this vendor and create a personalized onboarding strategy to
 convince them to join the FromNear platform as a seller.
@@ -287,13 +311,17 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
 def sales_agent(state: AgentState) -> AgentState:
     """
-    AI Sales Agent Node — FromNear Vendor Onboarding (Memory-Augmented).
+    AI Sales Agent Node — FromNear Vendor Onboarding (Multi-Agent).
+    Consumes research_output, memory_context, and structured_data.
     """
     structured_data = state.get("structured_data", {})
     memory_context = state.get("memory_context", {})
+    research_output = state.get("research_output", {})
 
     model_name = os.getenv("SALES_AGENT_MODEL", "gemma3:12b")
 
-    sales_output = generate_sales_output(structured_data, memory_context, model_name)
+    sales_output = generate_sales_output(
+        structured_data, memory_context, research_output, model_name
+    )
 
     return {"sales_output": sales_output}
