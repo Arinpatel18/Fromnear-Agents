@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
+from urllib.parse import urlparse
 from src.state import AgentState
+from src.memory import save_analysis
 
 # Configure logging
 logging.basicConfig(
@@ -18,26 +20,52 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Header
-    report.append("# 📊 AI-Driven Sales & Marketing Intelligence Report")
+    report.append("# 📊 FromNear — Vendor Onboarding Intelligence Report")
     report.append(f"*Generated on {timestamp}*\n")
     
     # Input Section
     report.append("---\n")
-    report.append("## 📍 Business Information")
+    report.append("## 📍 Vendor Information")
     website_url = raw_input.get("website_url") or raw_input.get("website", "N/A")
     instagram_url = raw_input.get("instagram_url") or raw_input.get("instagram_page", "N/A")
     report.append(f"- **Website:** {website_url}")
-    report.append(f"- **Instagram:** {instagram_url}\n")
+    report.append(f"- **Instagram:** {instagram_url}")
+    report.append(f"- **Category:** {raw_input.get('category', 'N/A')}")
+    report.append(f"- **Location:** {raw_input.get('location', 'N/A')}\n")
     
     # SALES SECTION
     report.append("---\n")
-    report.append("## 💼 Sales Strategy\n")
+    report.append("## 💼 Onboarding Strategy\n")
     
     if sales_output:
+        # Reasoning
+        if sales_output.get("reasoning"):
+            report.append("### 🧠 Agent Reasoning")
+            report.append(f"{sales_output['reasoning']}\n")
+        
+        # Confidence
+        confidence = sales_output.get("confidence_level", 0)
+        report.append(f"**Confidence Level:** {confidence:.0%}\n")
+        
         # Business Summary
         if sales_output.get("business_summary"):
             report.append("### Business Summary")
             report.append(f"{sales_output['business_summary']}\n")
+        
+        # Lead Score
+        lead = sales_output.get("lead_score", {})
+        if lead:
+            overall = lead.get("overall", "N/A")
+            reason = lead.get("reason", "")
+            breakdown = lead.get("breakdown", {})
+            report.append("### 📊 Lead Score")
+            report.append(f"**Overall:** {overall}/10 — {reason}")
+            if breakdown:
+                report.append(f"- Digital Presence: {breakdown.get('digital_presence', '?')}/10")
+                report.append(f"- Market Fit: {breakdown.get('market_fit', '?')}/10")
+                report.append(f"- Growth Potential: {breakdown.get('growth_potential', '?')}/10")
+                report.append(f"- Engagement Quality: {breakdown.get('engagement_quality', '?')}/10")
+            report.append("")
         
         # Pain Point Analysis
         if sales_output.get("pain_point_analysis"):
@@ -46,15 +74,6 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
                 report.append(f"{i}. {pain_point}")
             report.append("")
         
-        # Qualification Score
-        if sales_output.get("qualification_score"):
-            score_data = sales_output["qualification_score"]
-            score = score_data.get("score", "N/A")
-            reason = score_data.get("reason", "N/A")
-            report.append("### 📈 Qualification Score")
-            report.append(f"**Score:** {score}/10")
-            report.append(f"**Reason:** {reason}\n")
-        
         # Outreach Strategy
         if sales_output.get("outreach_strategy"):
             report.append("### 📢 Outreach Strategy")
@@ -62,9 +81,9 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
                 report.append(f"{i}. {strategy}")
             report.append("")
         
-        # Personalized Sales Pitch
+        # Personalized Onboarding Pitch
         if sales_output.get("personalized_sales_pitch"):
-            report.append("### 💬 Personalized Sales Pitches")
+            report.append("### 💬 Personalized Onboarding Pitch")
             for i, pitch in enumerate(sales_output["personalized_sales_pitch"], 1):
                 report.append(f"{i}. {pitch}")
             report.append("")
@@ -75,12 +94,31 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
             for i, followup in enumerate(sales_output["follow_up_suggestions"], 1):
                 report.append(f"{i}. {followup}")
             report.append("")
+        
+        # Actionable Next Steps
+        if sales_output.get("actionable_next_steps"):
+            report.append("### ✅ Actionable Next Steps")
+            for step in sales_output["actionable_next_steps"]:
+                action = step.get("action", "")
+                priority = step.get("priority", "").upper()
+                timeline = step.get("timeline", "")
+                owner = step.get("owner", "")
+                report.append(f"- [{priority}] {action} — *{timeline}* ({owner})")
+            report.append("")
     
     # MARKETING SECTION
     report.append("---\n")
-    report.append("## 📱 Marketing Strategy\n")
+    report.append("## 📱 Vendor Launch Marketing\n")
     
     if marketing_output:
+        # Reasoning
+        if marketing_output.get("reasoning"):
+            report.append("### 🧠 Agent Reasoning")
+            report.append(f"{marketing_output['reasoning']}\n")
+        
+        confidence = marketing_output.get("confidence_level", 0)
+        report.append(f"**Confidence Level:** {confidence:.0%}\n")
+        
         # Ad Campaigns
         if marketing_output.get("ad_campaigns"):
             report.append("### 🎬 Ad Campaigns")
@@ -146,7 +184,7 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
     
     # Footer
     report.append("---\n")
-    report.append("*End of Report*")
+    report.append("*End of Report — Powered by FromNear Intelligence*")
     
     return "\n".join(report)
 
@@ -154,7 +192,7 @@ def format_markdown_report(sales_output: dict, marketing_output: dict, raw_input
 def aggregator(state: AgentState) -> AgentState:
     """
     Aggregator Node: Combines outputs from Sales and Marketing Agents.
-    Generates a clean, professional markdown report.
+    Generates a professional markdown report AND persists to memory.
     """
     logger.info("=" * 50)
     logger.info("AGGREGATOR STARTED")
@@ -163,20 +201,49 @@ def aggregator(state: AgentState) -> AgentState:
     sales_output = state.get("sales_output", {})
     marketing_output = state.get("marketing_output", {})
     raw_input = state.get("raw_input", {})
+    structured_data = state.get("structured_data", {})
     
     # Format markdown report
     markdown_report = format_markdown_report(sales_output, marketing_output, raw_input)
-    
     logger.info("✓ Markdown report generated")
+    
+    # ── Save to persistent memory ────────────────────────────────────
+    try:
+        website_url = raw_input.get("website_url") or raw_input.get("website", "")
+        domain = urlparse(website_url).netloc if website_url else "unknown"
+        instagram = raw_input.get("instagram_url") or raw_input.get("instagram_page", "")
+        category = raw_input.get("category", "")
+        location = raw_input.get("location", "")
+        
+        # Extract scores
+        lead_score_data = sales_output.get("lead_score", {})
+        lead_score = lead_score_data.get("overall", 0) if isinstance(lead_score_data, dict) else 0
+        confidence = sales_output.get("confidence_level", 0.0)
+        
+        save_analysis(
+            domain=domain,
+            instagram_handle=instagram,
+            category=category,
+            location=location,
+            lead_score=float(lead_score),
+            confidence=float(confidence),
+            sales_output=sales_output,
+            marketing_output=marketing_output,
+            structured_data=structured_data,
+        )
+        logger.info("💾 Analysis saved to memory")
+    except Exception as e:
+        logger.error(f"⚠ Failed to save to memory: {e}")
+    
     logger.info("=" * 50)
     
     # Return structured output
     aggregated_output = {
         "sales_data": sales_output,
         "marketing_data": marketing_output,
-        "markdown_report": markdown_report
+        "markdown_report": markdown_report,
+        "lead_score": lead_score_data,
+        "confidence": confidence,
     }
     
     return {"aggregated_output": aggregated_output}
-
-    

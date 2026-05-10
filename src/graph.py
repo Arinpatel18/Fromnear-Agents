@@ -2,6 +2,7 @@ import logging
 from langgraph.graph import StateGraph, END
 from src.state import AgentState
 from src.nodes.input_node import process_input
+from src.nodes.memory_node import memory_node
 from src.nodes.sales_agent_node import sales_agent
 from src.nodes.marketing_agent_node import marketing_agent
 from src.nodes.aggregator_node import aggregator
@@ -16,40 +17,41 @@ logger = logging.getLogger(__name__)
 
 def create_workflow():
     """
-    Compiles the LangGraph workflow according to the proposed architecture.
-    
+    Compiles the LangGraph workflow with memory integration.
+
     Flow:
-    1. Input Node: Takes website + Instagram links, scrapes data
-    2. Parallel: Sales Agent & Marketing Agent process the data
-    3. Aggregator: Combines outputs into markdown report
+    1. Input Node: Scrapes website + Instagram
+    2. Memory Node: Retrieves similar past analyses for context
+    3. Parallel: Sales Agent & Marketing Agent (with memory context)
+    4. Aggregator: Combines outputs + saves to memory
     """
-    # 1. Initialize the StateGraph
     workflow = StateGraph(AgentState)
 
-    # 2. Add Nodes
+    # Add Nodes
     workflow.add_node("input_node", process_input)
+    workflow.add_node("memory_node", memory_node)
     workflow.add_node("sales_agent", sales_agent)
     workflow.add_node("marketing_agent", marketing_agent)
     workflow.add_node("aggregator", aggregator)
 
-    # 3. Define Edges
-    # Start at the Input Node
+    # Define Edges
     workflow.set_entry_point("input_node")
-    
-    # After input preprocessing, fan out to both Sales and Marketing Agents
-    workflow.add_edge("input_node", "sales_agent")
-    workflow.add_edge("input_node", "marketing_agent")
-    
+
+    # Input → Memory retrieval
+    workflow.add_edge("input_node", "memory_node")
+
+    # Memory → fan-out to both agents (parallel)
+    workflow.add_edge("memory_node", "sales_agent")
+    workflow.add_edge("memory_node", "marketing_agent")
+
     # Both agents converge at Aggregator
     workflow.add_edge("sales_agent", "aggregator")
     workflow.add_edge("marketing_agent", "aggregator")
-    
+
     # Terminate after aggregation
     workflow.add_edge("aggregator", END)
 
-    # 4. Compile Graph
     app = workflow.compile()
-    
     return app
 
 
@@ -60,16 +62,7 @@ async def run_pipeline(
     location: str = ""
 ) -> dict:
     """
-    Execute the complete AI pipeline with website, Instagram URLs, category, and location.
-    
-    Args:
-        website_url: URL of the business website
-        instagram_url: Instagram profile URL or username
-        category: Business category (e.g., Fashion, Electronics)
-        location: Business location (e.g., Mumbai, India)
-        
-    Returns:
-        Dictionary with aggregated output including markdown report
+    Execute the complete AI pipeline with memory-augmented agents.
     """
     logger.info("=" * 50)
     logger.info("PIPELINE STARTED")
@@ -79,11 +72,9 @@ async def run_pipeline(
     logger.info(f"Category: {category}")
     logger.info(f"Location: {location}")
     logger.info("=" * 50)
-    
-    # Create workflow
+
     workflow = create_workflow()
-    
-    # Initial state with input URLs and additional context
+
     initial_state = {
         "raw_input": {
             "website": website_url,
@@ -94,12 +85,12 @@ async def run_pipeline(
             "location": location,
         },
         "structured_data": {},
+        "memory_context": {},
         "sales_output": {},
         "marketing_output": {},
-        "aggregated_output": {}
+        "aggregated_output": {},
     }
-    
-    # Execute workflow
+
     try:
         result = workflow.invoke(initial_state)
         logger.info("=" * 50)

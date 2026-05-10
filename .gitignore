@@ -18,6 +18,7 @@ __pycache__/
 # Output and runtime files
 report.json
 *.log
+data/
 
 # VS Code / IDEs
 .vscode/

@@ -85,7 +85,27 @@ Post Engagement Sample: {post_engagement[0] if post_engagement else 'Not availab
     return context
 
 
-def generate_marketing_output(structured_data: Dict[str, Any], model_name: str = "gemma3:12b") -> Dict[str, Any]:
+def _format_memory_for_marketing(memory_context: dict) -> str:
+    """Format past analyses into marketing-relevant context."""
+    similar = memory_context.get("similar_vendors", [])
+    if not similar:
+        return "\n(No past vendor launch data for similar categories — this is a first.)\n"
+
+    lines = ["\n=== MEMORY: PAST VENDOR LAUNCHES IN SIMILAR CATEGORIES ==="]
+    for i, v in enumerate(similar, 1):
+        lines.append(
+            f"{i}. {v['domain']} ({v['category']}, {v['location']}) "
+            f"— Lead Score: {v['lead_score']}/10"
+        )
+    lines.append("Use these past launches to maintain consistency and build on learnings.\n")
+    return "\n".join(lines)
+
+
+def generate_marketing_output(
+    structured_data: Dict[str, Any],
+    memory_context: dict,
+    model_name: str = "gemma3:12b",
+) -> Dict[str, Any]:
     """
     Generate marketing strategies for FromNear to promote this vendor
     after they are onboarded onto the platform.
@@ -97,9 +117,10 @@ def generate_marketing_output(structured_data: Dict[str, Any], model_name: str =
     logger.info("MARKETING AGENT STARTED (FromNear Vendor Launch)")
     logger.info("=" * 60)
     
-    # Extract all business context
     context = extract_marketing_insights(structured_data)
+    memory_text = _format_memory_for_marketing(memory_context)
     logger.info("✓ Vendor context extracted from website + Instagram data")
+    logger.info(f"🧠 Memory context: {memory_context.get('total_past_analyses', 0)} similar vendor(s)")
     
     # Single comprehensive prompt
     prompt = f"""You are FromNear's Head of Marketing. Your job is to create marketing strategies
@@ -109,54 +130,53 @@ to promote a newly onboarded vendor on the FromNear platform.
 
 {context}
 
+{memory_text}
+
 YOUR TASK: This vendor has just been onboarded onto FromNear. Create a complete
 marketing plan to launch their presence on the platform and drive customers to
 discover and buy from them through FromNear.
 
 Generate the following:
 
-1. AD CAMPAIGN IDEAS: 2-3 ad campaigns FromNear can run to promote this vendor
-   to local customers. Reference their actual products, location, and audience.
+1. REASONING: 3-5 sentences explaining your marketing strategy rationale.
+   Why these campaigns? What data drove your decisions?
 
-2. INSTAGRAM CONTENT IDEAS: 3 Instagram posts/stories FromNear can create to
-   feature this vendor — include post type, content idea, and hashtags.
-   Think: vendor spotlights, product showcases, "shop local" stories.
+2. CONFIDENCE LEVEL: Rate your confidence (0.0 to 1.0) in these recommendations.
 
-3. LAUNCH CAMPAIGN CONCEPTS: 2 launch campaign ideas for when this vendor
-   goes live on FromNear (e.g., first-order discounts, free delivery week,
-   "meet your local store" events).
+3. AD CAMPAIGN IDEAS: 2-3 ad campaigns FromNear can run to promote this vendor.
 
-4. REELS/POST HOOKS: 3 attention-grabbing hooks for short-form video content
-   (Reels/Shorts) featuring this vendor on FromNear.
+4. INSTAGRAM CONTENT IDEAS: 3 Instagram posts/stories FromNear can create.
 
-5. GROWTH SUGGESTIONS: 3 strategies to grow this vendor's sales on FromNear
+5. LAUNCH CAMPAIGN CONCEPTS: 2 launch campaign ideas for the vendor going live.
+
+6. REELS/POST HOOKS: 3 attention-grabbing hooks for short-form video content.
+
+7. GROWTH SUGGESTIONS: 3 strategies to grow this vendor's sales on FromNear
    over the first 90 days.
 
 IMPORTANT:
 - You are marketing FROM FromNear's perspective — promoting this vendor TO local customers
 - Reference the vendor's actual products, location, Instagram handle, follower count
 - Make all suggestions hyperlocal — mention the specific city/area
-- Focus on driving footfall + app orders from nearby customers
 
 Return ONLY valid JSON (no markdown, no code blocks):
 {{
+    "reasoning": "Your marketing strategy rationale...",
+    "confidence_level": 0.85,
     "ad_campaigns": [
-        {{"name": "Campaign Name", "platform": "Platform", "duration": "Duration", "hook": "Main hook/angle"}},
         {{"name": "Campaign Name", "platform": "Platform", "duration": "Duration", "hook": "Main hook/angle"}}
     ],
     "instagram_content_calendar": [
-        {{"day": "Monday", "post_type": "Type", "idea": "Post idea", "hashtags": "#tag1 #tag2"}},
-        {{"day": "Wednesday", "post_type": "Type", "idea": "Post idea", "hashtags": "#tag1 #tag2"}},
-        {{"day": "Friday", "post_type": "Type", "idea": "Post idea", "hashtags": "#tag1 #tag2"}}
+        {{"day": "Monday", "post_type": "Type", "idea": "Post idea", "hashtags": "#tag1 #tag2"}}
     ],
     "launch_campaigns": [
-        {{"title": "Campaign Title", "focus": "Product/Service focus", "tactics": ["Tactic 1", "Tactic 2"]}}
+        {{"title": "Campaign Title", "focus": "Focus", "tactics": ["Tactic 1", "Tactic 2"]}}
     ],
     "reels_and_hooks": [
-        {{"hook": "Attention-grabbing first 3 seconds text", "platform": "Reel/Shorts", "cta": "Call to action"}}
+        {{"hook": "Attention-grabbing text", "platform": "Reel/Shorts", "cta": "Call to action"}}
     ],
     "growth_strategies": [
-        {{"strategy": "Strategy name", "action": "Specific action", "expected_impact": "Impact description"}}
+        {{"strategy": "Strategy name", "action": "Specific action", "expected_impact": "Impact"}}
     ]
 }}"""
 
@@ -194,6 +214,8 @@ Return ONLY valid JSON (no markdown, no code blocks):
         logger.info("=" * 60)
         logger.info("MARKETING OUTPUT SUMMARY")
         logger.info("=" * 60)
+        logger.info(f"✓ Reasoning: {len(marketing_output.get('reasoning', ''))} chars")
+        logger.info(f"✓ Confidence: {marketing_output.get('confidence_level', 'N/A')}")
         logger.info(f"✓ Ad Campaigns: {len(marketing_output.get('ad_campaigns', []))} ideas")
         logger.info(f"✓ Instagram Calendar: {len(marketing_output.get('instagram_content_calendar', []))} posts planned")
         logger.info(f"✓ Launch Campaigns: {len(marketing_output.get('launch_campaigns', []))} campaigns")
@@ -205,28 +227,26 @@ Return ONLY valid JSON (no markdown, no code blocks):
         
     except json.JSONDecodeError as e:
         logger.error(f"✗ JSON Parse Error: {str(e)}")
-        return {"error": f"JSON parse failed: {str(e)}"}
+        return {"reasoning": "Parse error", "confidence_level": 0.0, "error": f"JSON parse failed: {str(e)}"}
     except Exception as e:
         logger.exception(f"✗ Error in marketing generation: {str(e)}")
-        return {"error": str(e)}
+        return {"reasoning": "Generation error", "confidence_level": 0.0, "error": str(e)}
 
 
 def marketing_agent(state: AgentState) -> AgentState:
     """
-    Marketing Agent Node — FromNear Vendor Launch Marketing.
-    Generates marketing strategies for FromNear to promote a newly
-    onboarded vendor on the platform.
+    Marketing Agent Node — FromNear Vendor Launch Marketing (Memory-Augmented).
     """
     structured_data = state.get("structured_data", {})
+    memory_context = state.get("memory_context", {})
     
     if not structured_data:
         logger.error("✗ No structured data provided to marketing agent")
         return {"marketing_output": {}}
     
     try:
-        # Single efficient LLM call
         model_name = os.getenv("MARKETING_AGENT_MODEL", "gemma3:12b")
-        marketing_output = generate_marketing_output(structured_data, model_name)
+        marketing_output = generate_marketing_output(structured_data, memory_context, model_name)
         
         logger.info("✓ Marketing agent completed successfully")
         return {"marketing_output": marketing_output}

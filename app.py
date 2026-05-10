@@ -27,7 +27,7 @@ st.set_page_config(
     page_title="Fromnear · AI Sales & Marketing Intelligence",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ── Custom CSS ───────────────────────────────────────────────────────
@@ -147,6 +147,11 @@ html, body, [class*="css"] {
     margin-right: 0.5rem;
 }
 
+/* ── Confidence badge ─────────────────────────────── */
+.confidence-high { color: #00C9A7; font-weight: 600; }
+.confidence-mid  { color: #FFB347; font-weight: 600; }
+.confidence-low  { color: #FF6B6B; font-weight: 600; }
+
 /* ── Divider ───────────────────────────────────────── */
 .col-divider {
     border-left: 1px solid rgba(255,255,255,0.06);
@@ -174,6 +179,24 @@ html, body, [class*="css"] {
 /* ── Spinner overlay ───────────────────────────────── */
 .stSpinner > div {
     border-color: #6C63FF !important;
+}
+
+/* ── Sidebar history card ─────────────────────────── */
+.history-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.85rem;
+}
+.history-card .domain {
+    font-weight: 600;
+    color: #E0E0E0;
+}
+.history-card .meta {
+    color: #8B8FA3;
+    font-size: 0.78rem;
 }
 </style>
 """,
@@ -211,6 +234,70 @@ def _dict_items_html(items: list, fields: list[tuple[str, str]]) -> str:
         entry = "<br>".join(heading_vals + detail_lines)
         parts.append(f"<div style='margin-bottom:0.75rem;'>{entry}</div>")
     return "".join(parts)
+
+
+def _confidence_badge(confidence: float) -> str:
+    """Return HTML for a color-coded confidence badge."""
+    pct = f"{confidence:.0%}"
+    if confidence >= 0.7:
+        return f'<span class="confidence-high">🟢 {pct}</span>'
+    elif confidence >= 0.4:
+        return f'<span class="confidence-mid">🟡 {pct}</span>'
+    else:
+        return f'<span class="confidence-low">🔴 {pct}</span>'
+
+
+def _next_steps_html(steps: list) -> str:
+    """Render actionable next steps as a styled checklist."""
+    if not steps:
+        return "<p style='color:#8B8FA3;'>No next steps</p>"
+    parts = []
+    for step in steps:
+        action = step.get("action", "")
+        priority = step.get("priority", "medium").upper()
+        timeline = step.get("timeline", "")
+        owner = step.get("owner", "")
+        color = {"HIGH": "#FF6B6B", "MEDIUM": "#FFB347", "LOW": "#00C9A7"}.get(priority, "#8B8FA3")
+        parts.append(
+            f'<div style="margin-bottom:0.5rem;">'
+            f'<span style="color:{color};font-weight:700;">[{priority}]</span> '
+            f'{action} — <em>{timeline}</em> '
+            f'<span style="color:#8B8FA3;">({owner})</span>'
+            f'</div>'
+        )
+    return "".join(parts)
+
+
+# ── SIDEBAR: Analysis History ────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🧠 Memory / Analysis History")
+    st.markdown("<p style='color:#8B8FA3;font-size:0.85rem;'>Past vendor analyses are stored and used to improve future recommendations.</p>", unsafe_allow_html=True)
+    
+    try:
+        from src.memory import get_history
+        history = get_history(limit=15)
+        
+        if history:
+            for entry in history:
+                domain = entry.get("domain", "unknown")
+                cat = entry.get("category", "")
+                loc = entry.get("location", "")
+                score = entry.get("lead_score", 0)
+                conf = entry.get("confidence", 0)
+                ts = entry.get("created_at", "")[:16]
+                
+                st.markdown(
+                    f"""<div class="history-card">
+                    <div class="domain">🏪 {domain}</div>
+                    <div class="meta">{cat} · {loc} · Score: {score}/10 · Conf: {conf:.0%}</div>
+                    <div class="meta">{ts}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("No analyses yet. Run your first analysis to start building memory.")
+    except Exception as e:
+        st.warning(f"Memory unavailable: {e}")
 
 
 # ── HEADER ───────────────────────────────────────────────────────────
@@ -297,11 +384,61 @@ if "result" in st.session_state:
             unsafe_allow_html=True,
         )
 
+        # Reasoning trace
+        reasoning = sales.get("reasoning", "")
+        if reasoning:
+            with st.expander("🧠 Agent Reasoning", expanded=False):
+                st.markdown(reasoning)
+
+        # Confidence badge
+        conf = sales.get("confidence_level", 0)
+        st.markdown(
+            f'<div style="margin-bottom:1rem;">Confidence: {_confidence_badge(conf)}</div>',
+            unsafe_allow_html=True,
+        )
+
         # Business Summary
         st.markdown(
             f"""<div class="result-card sales">
             <h4>📋 Business Summary</h4>
             <div class="content">{sales.get('business_summary', 'N/A')}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+        # Lead Score with Breakdown
+        lead = sales.get("lead_score", {})
+        overall = lead.get("overall", 0) if isinstance(lead, dict) else lead
+        reason = lead.get("reason", "") if isinstance(lead, dict) else ""
+        breakdown = lead.get("breakdown", {}) if isinstance(lead, dict) else {}
+
+        score_html = f'<span class="score-badge">{overall}/10</span> <span style="color:#C4C7D4;">{reason}</span>'
+        if breakdown:
+            score_html += '<div style="margin-top:0.8rem;">'
+            for dim, label in [
+                ("digital_presence", "Digital Presence"),
+                ("market_fit", "Market Fit"),
+                ("growth_potential", "Growth Potential"),
+                ("engagement_quality", "Engagement"),
+            ]:
+                val = breakdown.get(dim, 0)
+                pct = val * 10  # out of 100 for progress bar
+                color = "#00C9A7" if val >= 7 else "#FFB347" if val >= 5 else "#FF6B6B"
+                score_html += (
+                    f'<div style="display:flex;align-items:center;margin-bottom:0.35rem;">'
+                    f'<span style="width:140px;color:#8B8FA3;font-size:0.85rem;">{label}</span>'
+                    f'<div style="flex:1;background:rgba(255,255,255,0.05);border-radius:4px;height:8px;margin:0 8px;">'
+                    f'<div style="width:{pct}%;background:{color};height:100%;border-radius:4px;"></div>'
+                    f'</div>'
+                    f'<span style="color:{color};font-weight:600;font-size:0.85rem;">{val}/10</span>'
+                    f'</div>'
+                )
+            score_html += '</div>'
+
+        st.markdown(
+            f"""<div class="result-card sales">
+            <h4>📊 Lead Score</h4>
+            <div class="content">{score_html}</div>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -316,21 +453,6 @@ if "result" in st.session_state:
             unsafe_allow_html=True,
         )
 
-        # Qualification Score
-        qual = sales.get("qualification_score", {})
-        score = qual.get("score", "—") if isinstance(qual, dict) else qual
-        reason = qual.get("reason", "") if isinstance(qual, dict) else ""
-        st.markdown(
-            f"""<div class="result-card sales">
-            <h4>📈 Qualification Score</h4>
-            <div class="content">
-                <span class="score-badge">{score}/10</span>
-                <span style="color:#C4C7D4;">{reason}</span>
-            </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
         # Outreach Strategy
         outreach = sales.get("outreach_strategy", [])
         st.markdown(
@@ -341,7 +463,7 @@ if "result" in st.session_state:
             unsafe_allow_html=True,
         )
 
-        # Sales Pitch
+        # Personalized Onboarding Pitch
         pitches = sales.get("personalized_sales_pitch", [])
         st.markdown(
             f"""<div class="result-card sales">
@@ -361,10 +483,34 @@ if "result" in st.session_state:
             unsafe_allow_html=True,
         )
 
+        # Actionable Next Steps
+        next_steps = sales.get("actionable_next_steps", [])
+        if next_steps:
+            st.markdown(
+                f"""<div class="result-card sales">
+                <h4>✅ Actionable Next Steps</h4>
+                <div class="content">{_next_steps_html(next_steps)}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
     # ── MARKETING COLUMN ─────────────────────────────────────────────
     with col_mkt:
         st.markdown(
             '<div class="section-hdr-mkt">📱 Vendor Launch Marketing</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Reasoning trace
+        mkt_reasoning = marketing.get("reasoning", "")
+        if mkt_reasoning:
+            with st.expander("🧠 Agent Reasoning", expanded=False):
+                st.markdown(mkt_reasoning)
+
+        # Confidence badge
+        mkt_conf = marketing.get("confidence_level", 0)
+        st.markdown(
+            f'<div style="margin-bottom:1rem;">Confidence: {_confidence_badge(mkt_conf)}</div>',
             unsafe_allow_html=True,
         )
 
