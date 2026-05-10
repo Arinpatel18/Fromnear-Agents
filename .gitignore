@@ -1,0 +1,27 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Mac OS
+.DS_Store
+
+# Output and runtime files
+report.json
+*.log
+
+# VS Code / IDEs
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
