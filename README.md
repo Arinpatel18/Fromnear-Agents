@@ -24,7 +24,7 @@ An autonomous, multi-agent AI pipeline that researches, analyses, and generates 
 
 ## 🏗 Architecture
 
-![Alt text](images/Architecture_diagram.png)
+![Alt text](Architecture_diagram.png)
 
 ### Pipeline Flow
 
